@@ -60,7 +60,8 @@ class TextNodeEditor(DirectObject, TextNode):
         if filename:
             self.filename = filename
         else:
-            pass # TODO: Ask filename
+            filename = self.filename
+             # TODO: Ask filename
         print('loading file {}!'.format(filename))
         self.lines = []
         self.text = ''
@@ -76,7 +77,8 @@ class TextNodeEditor(DirectObject, TextNode):
         if filename:
             self.filename = filename
         else:
-            pass # TODO: Ask filename
+            filename = self.filename
+            # TODO: Ask filename
         print('saving as {}!'.format(filename))
         self.filename = filename
         file = open(filename, 'w')
@@ -110,11 +112,11 @@ class TextNodeEditor(DirectObject, TextNode):
         self.key('home', self.scroll_max, extra_args=[True, False])
         self.key('control-end', self.scroll_max, extra_args=[False, True])
         self.key('control-home', self.scroll_max, extra_args=[False, False])
-        self.key('page_down', self.scroll, extra_args=[-1])
-        self.key('page_up', self.scroll, extra_args=[1])
+        self.key('page_down', self.scroll, extra_args=[1])
+        self.key('page_up', self.scroll, extra_args=[-1])
 
         self.key('control-n', self.new_file)
-        self.key('control-s', self.save_file, extra_args=['example/__init__.py'])
+        self.key('control-s', self.save_file)
         self.key('control-l', self.load_file)
 
     def hide(self):

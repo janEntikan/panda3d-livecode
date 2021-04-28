@@ -1,6 +1,6 @@
 import sys
 from direct.showbase.ShowBase import ShowBase
-from game.editor import TextNodeEditor
+from livecode.editor import TextNodeEditor
 
 
 class Base(ShowBase):
