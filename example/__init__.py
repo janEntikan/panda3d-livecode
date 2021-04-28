@@ -1,11 +1,13 @@
 # Welcome to panda3d-live.
 #
+# Ctrl-tab to (un)hide
 # Ctrl-n for new
 # Ctrl-o to open
 # Ctrl-s to save
 # Ctrl-q to quit
 # Enter or shift-enter to refresh game.
 # Drag mouse to move camera.
+
 
 class Game():
     def __init__(self):
@@ -56,10 +58,10 @@ class Game():
             bullet = self.spawn('bullet')
             bullet.set_pos(self.player.get_pos())
             self.bullets.append(bullet)
+
         for bullet in self.bullets:
             bullet.set_y(bullet, self.bullet_speed*dt)
-            self.hit_enemy(bullet)
-            if bullet.get_y() > 60:
+            if bullet.get_y() > 60 or self.hit_enemy(bullet):
                 bullet.detach_node()
                 self.bullets.remove(bullet)
 
