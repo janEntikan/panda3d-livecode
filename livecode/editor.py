@@ -19,32 +19,22 @@ def create_select_cards():
     return [NodePath(cardmaker.generate()) for i in range(3)]
 
 
-class TextNodeEditor(DirectObject, TextNode):
+class TextNodeFile(TextNode):
     def __init__(self, name, filename=None, **options):
-        DirectObject.__init__(self)
         TextNode.__init__(self, name, **options)
-        self.highlight = Highlight()
-        self.repl = Repl()
         self.font = loader.load_font("fifteen.ttf")
         self.set_font(self.font)
         self.set_shadow(0.08)
         self.set_shadow_color((0,0,0,1))
 
+        self.x = self.y = 0
         self.lines = ['']
+        self.show_line_number = True
         self.scroll_start = 15
         self.max_lines = 30
-        self.x = self.y = 0
-
-        self.cardmaker = CardMaker("select")
-        self.select_start = [0,0]
-        self.select_cards = create_select_cards()
-        print(self.select_cards)
-        self.selection = []
-
-        self.show_line_number = True
         self.hidden = False
-        self.setup_input()
-        self.load_file(filename)
+        if filename:
+            self.load_file(filename)
 
     @property
     def line(self):
@@ -53,9 +43,6 @@ class TextNodeEditor(DirectObject, TextNode):
     @property
     def line_length(self):
         return len(self.line)
-
-    def run(self):
-        self.repl.repl(self.lines)
 
     def new_file(self):
         self.x = self.y = 0
@@ -92,6 +79,52 @@ class TextNodeEditor(DirectObject, TextNode):
             file.write(line+'\n')
         file.close()
 
+    def hide(self):
+        self.hidden = not self.hidden
+        self.refresh()
+
+    def write_out(self):
+        self.text = ''
+        if self.hidden:
+            return
+        for l, line in enumerate(self.lines):
+            line_offset = max(0,self.y - self.scroll_start)
+            if l >= line_offset:
+                if self.y == l:
+                    a,b = split(line, self.x)
+                    line = a+"|"+b
+                if self.show_line_number:
+                    self.text += fill(str(l),3)+' '
+                self.text += line + "\n"
+            if l > line_offset+self.max_lines-1:
+                return
+
+    def refresh(self):
+        self.write_out()
+
+
+class TextNodeEditor(DirectObject, TextNodeFile):
+    def __init__(self, name, filename=None, **options):
+        DirectObject.__init__(self)
+        TextNodeFile.__init__(self, name, None, **options)
+        self.highlight = Highlight()
+        self.repl = Repl()
+        self.setup_input()
+
+        self.selected = [0,0]
+        self.selected_lines = []
+        self.select_cards = create_select_cards()
+
+        if filename:
+            self.load_file(filename)
+
+    def refresh(self):
+        self.write_out()
+        self.text = self.highlight.highlight(self.text)
+
+    def run(self):
+        self.repl.repl(self.lines)
+
     def key(self, key, func, extra_args=[]):
         self.accept(key, func, extraArgs=extra_args)
         self.accept(key+'-repeat', func, extraArgs=extra_args)
@@ -124,27 +157,6 @@ class TextNodeEditor(DirectObject, TextNode):
         self.key('control-n', self.new_file)
         self.key('control-s', self.save_file)
         self.key('control-o', self.load_file)
-
-    def hide(self):
-        self.hidden = not self.hidden
-        self.refresh()
-
-    def refresh(self):
-        self.text = ''
-        if self.hidden:
-            return
-        for l, line in enumerate(self.lines):
-            line_offset = max(0,self.y - self.scroll_start)
-            if l >= line_offset:
-                if self.y == l:
-                    a,b = split(line, self.x)
-                    line = a+"|"+b
-                line = self.highlight.highlight(line)
-                if self.show_line_number:
-                    self.text += fill(str(l),3)+' '
-                self.text += line
-            if l > line_offset+self.max_lines-1:
-                return
 
     def move_char(self, amount, refresh=True):
         self.x += amount

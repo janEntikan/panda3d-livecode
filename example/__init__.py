@@ -44,6 +44,7 @@ class Game():
             if bullet.get_distance(enemy) < 0.5:
                 enemy.detach_node()
                 self.enemies.remove(enemy)
+                return True
 
     def update_player(self):
         dt = globalClock.get_dt()
