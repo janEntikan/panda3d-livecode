@@ -1,3 +1,12 @@
+# Welcome to panda3d-live.
+#
+# Ctrl-n for new
+# Ctrl-o to open
+# Ctrl-s to save
+# Ctrl-q to quit
+# Enter or shift-enter to refresh game.
+# Drag mouse to move camera.
+
 class Game():
     def __init__(self):
         self.models = {

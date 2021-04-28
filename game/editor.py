@@ -2,7 +2,7 @@ from panda3d.core import TextNode, TextPropertiesManager
 from direct.showbase.DirectObject import DirectObject
 
 from .highlight import Highlight
-from .repl import repl
+from .repl import Repl
 
 
 NUMBERS = '0123456789'
@@ -18,8 +18,10 @@ class TextNodeEditor(DirectObject):
     def __init__(self):
         DirectObject.__init__(self)
         self.highlight = Highlight()
+        self.repl = Repl()
         self.text = TextNode('TextEditor')
-        self.text.set_font(base.font)
+        self.font = loader.load_font("fifteen.ttf")
+        self.text.set_font(self.font)
         self.text.set_shadow(0.08)
         self.text.set_shadow_color((0,0,0,1))
         self.root = render2d.attach_new_node(self.text)
@@ -36,7 +38,7 @@ class TextNodeEditor(DirectObject):
         self.refresh()
 
     def run(self):
-        repl(self.lines)
+        self.repl.repl(self.lines)
 
     def load_file(self, filename):
         print('loading file {}!'.format(filename))
