@@ -1,4 +1,4 @@
-from panda3d.core import TextNode, TextPropertiesManager
+from panda3d.core import NodePath, TextNode, TextPropertiesManager
 from panda3d.core import CardMaker
 from direct.showbase.DirectObject import DirectObject
 
@@ -13,6 +13,10 @@ LEGAL_CHARACTERS = LETTERS + LETTERS.lower() + NUMBERS + SYMBOLS
 
 def split(l, n): return l[:n], l[n:]
 def fill(string, n): return "{:<{}}".format(string, n)[:n]
+def create_select_cards():
+    cardmaker = CardMaker('selection cards')
+    cardmaker.set_frame(0,0,-1,-1)
+    return [NodePath(cardmaker.generate()) for i in range(3)]
 
 
 class TextNodeEditor(DirectObject, TextNode):
@@ -33,7 +37,9 @@ class TextNodeEditor(DirectObject, TextNode):
 
         self.cardmaker = CardMaker("select")
         self.select_start = [0,0]
-        self.select_cards = []
+        self.select_cards = create_select_cards()
+        print(self.select_cards)
+        self.selection = []
 
         self.show_line_number = True
         self.hidden = False
@@ -73,7 +79,7 @@ class TextNodeEditor(DirectObject, TextNode):
         self.refresh()
         self.run()
 
-    def save_file(self, filename):
+    def save_file(self, filename=None):
         if filename:
             self.filename = filename
         else:
@@ -117,7 +123,7 @@ class TextNodeEditor(DirectObject, TextNode):
 
         self.key('control-n', self.new_file)
         self.key('control-s', self.save_file)
-        self.key('control-l', self.load_file)
+        self.key('control-o', self.load_file)
 
     def hide(self):
         self.hidden = not self.hidden
@@ -125,19 +131,20 @@ class TextNodeEditor(DirectObject, TextNode):
 
     def refresh(self):
         self.text = ''
-        if not self.hidden:
-            for l, line in enumerate(self.lines):
-                line_offset = max(0,self.y - self.scroll_start)
-                if l >= line_offset:
-                    if self.y == l:
-                        a,b = split(line, self.x)
-                        line = a+"|"+b
-                    line = self.highlight.highlight(line)
-                    if self.show_line_number:
-                        self.text += fill(str(l),3)+' '
-                    self.text += line
-                if l > line_offset+self.max_lines-1:
-                    return
+        if self.hidden:
+            return
+        for l, line in enumerate(self.lines):
+            line_offset = max(0,self.y - self.scroll_start)
+            if l >= line_offset:
+                if self.y == l:
+                    a,b = split(line, self.x)
+                    line = a+"|"+b
+                line = self.highlight.highlight(line)
+                if self.show_line_number:
+                    self.text += fill(str(l),3)+' '
+                self.text += line
+            if l > line_offset+self.max_lines-1:
+                return
 
     def move_char(self, amount, refresh=True):
         self.x += amount

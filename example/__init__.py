@@ -1,5 +1,5 @@
-# Welcome to panda3d-live.
-#
+# Welcome to panda3d-livecode.
+
 # Ctrl-tab to (un)hide
 # Ctrl-n for new
 # Ctrl-o to open
@@ -16,13 +16,16 @@ class Game():
             'monster' : loader.load_model('example/monster.bam'),
             'bullet' : loader.load_model('example/bullet.bam'),
         }
-        self.enemies = []
-        self.bullets = []
+
         self.player = self.spawn('player')
+        self.bullets = []
+        self.enemies = []
         self.spawn_enemies()
-        self.bullet_cooldown = [0.2,0.2]
+
+        self.cooldown = [0.2,0.2]
         self.bullet_speed = 20
-        self.speed = 10
+        self.player_speed = 10
+
         base.cam.set_pos(0,-40, 20)
         base.cam.look_at((0,20,0))
         base.task_mgr.add(self.update)
@@ -46,15 +49,15 @@ class Game():
         dt = globalClock.get_dt()
         is_down = base.mouseWatcherNode.is_button_down
         if is_down('arrow_left'):
-            self.player.set_x(self.player, -self.speed*dt)
+            self.player.set_x(self.player, -self.player_speed*dt)
         if is_down('arrow_right'):
-            self.player.set_x(self.player, self.speed*dt)
+            self.player.set_x(self.player, self.player_speed*dt)
 
     def update_bullets(self):
         dt = globalClock.get_dt()
-        self.bullet_cooldown[0] -= dt
-        if self.bullet_cooldown[0] < 0:
-            self.bullet_cooldown[0] = self.bullet_cooldown[1]
+        self.cooldown[0] -= dt
+        if self.cooldown[0] < 0:
+            self.cooldown[0] = self.cooldown[1]
             bullet = self.spawn('bullet')
             bullet.set_pos(self.player.get_pos())
             self.bullets.append(bullet)
