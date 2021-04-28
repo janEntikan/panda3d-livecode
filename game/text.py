@@ -1,5 +1,5 @@
 from panda3d.core import TextNode, TextPropertiesManager
-from direct.gui.DirectGui import *
+from direct.showbase.DirectObject import DirectObject
 
 from .highlight import Highlight
 from .repl import repl
@@ -14,8 +14,9 @@ def split(l, n): return l[:n], l[n:]
 def fill(string, n): return "{:<{}}".format(string, n)[:n]
 
 
-class TextNodeEditor():
+class TextNodeEditor(DirectObject):
     def __init__(self):
+        DirectObject.__init__(self)
         self.highlight = Highlight()
         self.text = TextNode('TextEditor')
         self.text.set_font(base.font)
@@ -26,11 +27,12 @@ class TextNodeEditor():
         self.root.set_pos((-0.95,0,0.9))
 
         self.lines = ['']
+        self.max_lines = 30
         self.x = self.y = 0
         self.select_start = [0,0]
 
         self.setup_input()
-        self.load_file("test.py")
+        self.load_file('example/__init__.py')
         self.refresh()
 
     def run(self):
@@ -56,27 +58,28 @@ class TextNodeEditor():
             file.write(line+'\n')
         file.close()
 
-    def accept(self, key, func, extra_args=[]):
-        base.accept(key, func, extraArgs=extra_args)
-        base.accept(key+'-repeat', func, extraArgs=extra_args)
+    def key(self, key, func, extra_args=[]):
+        self.accept(key, func, extraArgs=extra_args)
+        self.accept(key+'-repeat', func, extraArgs=extra_args)
 
     def setup_input(self):
         base.buttonThrowers[0].node().setKeystrokeEvent('keystroke')
-        base.accept('keystroke', self.add)
-        self.accept('enter', self.enter)
-        self.accept('arrow_left', self.move_char, [-1])
-        self.accept('arrow_right', self.move_char, [1])
-        self.accept('arrow_up', self.move_line, [-1])
-        self.accept('arrow_down', self.move_line, [1])
-        self.accept('tab', self.tab)
-        self.accept('shift-tab', self.tab, extra_args=[True])
-        self.accept('backspace', self.remove)
-        self.accept('delete', self.remove, extra_args=[False])
-        self.accept('control-s', self.save_file, extra_args=['test.py'])
-        self.accept('end', self.scroll_max, extra_args=[True, True])
-        self.accept('home', self.scroll_max, extra_args=[True, False])
-        self.accept('control-end', self.scroll_max, extra_args=[False, True])
-        self.accept('control-home', self.scroll_max, extra_args=[False, False])
+        self.key('keystroke', self.add)
+        self.key('enter', self.enter)
+        self.key('shift-enter', self.run)
+        self.key('arrow_left', self.move_char, [-1])
+        self.key('arrow_right', self.move_char, [1])
+        self.key('arrow_up', self.move_line, [-1])
+        self.key('arrow_down', self.move_line, [1])
+        self.key('tab', self.tab)
+        self.key('shift-tab', self.tab, extra_args=[True])
+        self.key('backspace', self.remove)
+        self.key('delete', self.remove, extra_args=[False])
+        self.key('control-s', self.save_file, extra_args=['example/__init__.py'])
+        self.key('end', self.scroll_max, extra_args=[True, True])
+        self.key('home', self.scroll_max, extra_args=[True, False])
+        self.key('control-end', self.scroll_max, extra_args=[False, True])
+        self.key('control-home', self.scroll_max, extra_args=[False, False])
 
     @property
     def line(self):
@@ -89,11 +92,13 @@ class TextNodeEditor():
     def refresh(self):
         combined_text = ''
         for l, line in enumerate(self.lines):
-            if self.y == l:
-                a,b = split(line, self.x)
-                line = a+"|"+b
-            line = self.highlight.highlight(line)
-            combined_text += fill(str(l),3)+' ' + line
+            line_offset = max(0,self.y - self.max_lines)
+            if l >= line_offset:
+                if self.y == l:
+                    a,b = split(line, self.x)
+                    line = a+"|"+b
+                line = self.highlight.highlight(line)
+                combined_text += fill(str(l),3)+' ' + line
         self.text.text = combined_text
 
     def move_char(self, amount):

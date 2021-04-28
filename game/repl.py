@@ -3,4 +3,7 @@ def repl(code):
     for l, line in enumerate(code):
         compiled += line + '\n'
     base.reset()
-    exec(compiled)
+    try:
+        exec(compiled)
+    except:
+        print("error")
