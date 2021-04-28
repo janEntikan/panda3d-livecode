@@ -1,0 +1,1 @@
+All this code is in the public domain.
