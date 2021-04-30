@@ -28,6 +28,7 @@ class TextNodeFile(TextNode):
         self.x = self.y = 0
         self.lines = ['']
         self.show_line_number = True
+        self.line_number_width = 4
         self.max_rows = 30
         self.hidden = False
         if filename:
@@ -109,6 +110,7 @@ class TextNodeEditor(DirectObject, TextNodeFile):
         self.set_font(self.font)
         self.char_w = self.calc_width(" ")
         self.char_h = self.get_line_height()
+        self.tab_size = 4
 
         self.highlight = Highlight()
         self.repl = Repl()
@@ -119,10 +121,19 @@ class TextNodeEditor(DirectObject, TextNodeFile):
         self.cursor_card = None
         self.selecting = False
         self.select_start = [0,0]
-        self.selection = []
 
         if filename:
             self.load_file(filename)
+
+    def copy(self):
+        self.copy_buffer = self.selection_buffer[:]
+
+    def cut(self):
+        self.copy()
+        self.remove_range()
+
+    def paste(self):
+        self.copy()
 
     def clear_rects(self):
         for card in self.cards:
@@ -142,28 +153,53 @@ class TextNodeEditor(DirectObject, TextNodeFile):
         self.add_child(card)
         return card
 
-    def draw_selection(self):
+    def draw_selection(self, line_number, start, end=0):
+        x = self.line_number_width+start
+        y = line_number-self.line_offset
+        w = len(self.lines[line_number])-start
+        if end:
+            w = min(w,end)
+        self.cards.append(self.draw_rect([x,y,w,0]))
+
+    def remove_range(self, start, end):
+        if start[1] == end[1]:
+            self.lines[start[1]] = self.lines[start[1]][start[0]:end[0]]
+
+    def select_range(self, start, end):
+        self.selection_buffer = []
+        if start[1] == end[1]:
+            self.draw_selection(start[1], end[0], start[0]-end[0])
+            line = self.lines[start[1]]
+            self.selection_buffer.append(line[start[0]:end[0]])
+        else:
+            self.draw_selection(start[1], 0, start[0])
+            line = self.lines[start[1]]
+            self.selection_buffer.append(line[0:start[0]])
+            for i in range(1, abs(start[1]-end[1])):
+                i = start[1] - i
+                self.draw_selection(i,0)
+                self.selection_buffer.append(self.lines[i])
+            self.draw_selection(end[1], end[0])
+            line = self.lines[end[1]]
+            self.selection_buffer.append(line[0:start[0]])
+
+    def handle_selection(self):
         self.clear_rects()
         if self.selecting:
-            self.selection = []
-            for i in range(abs(self.y-self.selection_start[1]-1)):
-                if self.y < self.selection_start[1]:
-                    i = -i
-                i = self.y - i
-                y = i-self.line_offset
-                x = 4
-                w = len(self.lines[i])
-                self.cards.append(self.draw_rect([x,y,w,0]))
+            if self.y > self.selection_start[1]:
+                self.select_range((self.x, self.y),self.selection_start)
+            else:
+                self.select_range(self.selection_start, (self.x, self.y))
 
     def draw_cursor(self):
-        new_card = self.draw_rect([self.x+4, self.y-self.line_offset, 0.0001, 0])
+        new_card = self.draw_rect([self.x+self.line_number_width, self.y-self.line_offset, 0.0001, 0])
         if self.cursor_card:
             new_card.replace_node(self.cursor_card)
         self.cursor_card = new_card
 
     def refresh(self):
+        self.handle_selection()
         self.draw_cursor()
-        self.draw_selection()
         self.write_out()
         self.text = self.highlight.highlight(self.text)
 
@@ -172,7 +208,6 @@ class TextNodeEditor(DirectObject, TextNodeFile):
 
     def toggle_select(self, on=True):
         self.selecting = on
-        print(on)
         self.selection_start = [self.x, self.y]
 
     def move_char(self, amount, refresh=True):
@@ -183,7 +218,8 @@ class TextNodeEditor(DirectObject, TextNodeFile):
         elif self.x > self.line_length:
             self.move_line(1)
             self.x = 0
-        if refresh: self.refresh()
+        if refresh:
+            self.refresh()
 
     def move_word(self, amount, refresh=True):
         try:
@@ -196,14 +232,16 @@ class TextNodeEditor(DirectObject, TextNodeFile):
                     break
         except IndexError:
             self.move_char(amount, refresh=False)
-        if refresh: self.refresh()
+        if refresh:
+            self.refresh()
 
     def move_line(self, amount, refresh=True):
         self.y += amount
         self.y = clamp(self.y, 0, len(self.lines)-1)
         if self.x > self.line_length:
             self.x = self.line_length
-        if refresh: self.refresh()
+        if refresh:
+            self.refresh()
 
     def scroll(self, amount):
         for i in range(self.max_rows-1):
@@ -219,16 +257,24 @@ class TextNodeEditor(DirectObject, TextNodeFile):
 
     def tab(self, backwards=False):
         if backwards:
-            if self.line[:4] == '    ':
-                self.lines[self.y] = self.line[4:]
-                self.x -= 4
+            # HACK: selecting is on when holding shift
+            # so let's force it off for shift-tab untill another key pops up
+            self.selecting = False
+            if self.line[:self.tab_size] == '    ':
+                self.lines[self.y] = self.line[self.tab_size:]
+                self.x -= self.tab_size
                 self.refresh()
         else:
-            for i in range(4):
+            for i in range(self.tab_size):
                 self.add(" ")
 
     def remove(self, backwards=True):
-        if not backwards: self.move_char(1)
+        if self.selecting:
+            self.remove_range()
+            self.refresh()
+            return
+        if not backwards:
+            self.move_char(1)
         a, b = split(self.line, self.x)
         if len(a) == 0:
             if len(self.lines)-1 == 0:
@@ -266,12 +312,14 @@ class TextNodeEditor(DirectObject, TextNodeFile):
         self.accept(key+'-repeat', func, extraArgs=extra_args)
         self.accept('shift-'+key+'-repeat', func, extraArgs=extra_args)
 
-
     def setup_input(self):
         base.buttonThrowers[0].node().setKeystrokeEvent('keystroke')
         self.key('keystroke', self.add)
         self.key('enter', self.enter)
         self.key('shift-enter', self.run)
+
+        self.accept('shift', self.toggle_select, extraArgs=[True])
+        self.accept('shift-up', self.toggle_select, extraArgs=[False])
 
         self.key('arrow_left', self.move_char, [-1])
         self.key('arrow_right', self.move_char, [1])
@@ -298,6 +346,6 @@ class TextNodeEditor(DirectObject, TextNodeFile):
         self.key('control-s', self.save_file)
         self.key('control-o', self.load_file)
 
-        self.accept('shift', self.toggle_select, extraArgs=[True])
-        self.accept('shift-up', self.toggle_select, extraArgs=[False])
-
+        self.key('control-c', self.copy)
+        self.key('control-x', self.cut)
+        self.key('control-v', self.paste)
