@@ -1,4 +1,7 @@
-from panda3d.core import NodePath, TextNode, TextPropertiesManager
+from panda3d.core import NodePath
+from panda3d.core import TextNode
+from panda3d.core import TextAssembler
+from panda3d.core import TextPropertiesManager
 from panda3d.core import CardMaker
 from direct.showbase.DirectObject import DirectObject
 
@@ -8,30 +11,24 @@ from .repl import Repl
 
 NUMBERS = '0123456789'
 LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+LETTERS = LETTERS + LETTERS.lower()
 SYMBOLS = ' `~!@#$%^&*()_+|-=\\[];,./{}:"<>?'+"'"
-LEGAL_CHARACTERS = LETTERS + LETTERS.lower() + NUMBERS + SYMBOLS
+LEGAL_CHARACTERS = LETTERS + NUMBERS + SYMBOLS
 
 def split(l, n): return l[:n], l[n:]
 def fill(string, n): return "{:<{}}".format(string, n)[:n]
-def create_select_cards():
-    cardmaker = CardMaker('selection cards')
-    cardmaker.set_frame(0,0,-1,-1)
-    return [NodePath(cardmaker.generate()) for i in range(3)]
+def clamp(n, low, high): return max(low, min(n, high))
 
 
 class TextNodeFile(TextNode):
     def __init__(self, name, filename=None, **options):
         TextNode.__init__(self, name, **options)
-        self.font = loader.load_font("fifteen.ttf")
-        self.set_font(self.font)
         self.set_shadow(0.08)
         self.set_shadow_color((0,0,0,1))
-
         self.x = self.y = 0
         self.lines = ['']
         self.show_line_number = True
-        self.scroll_start = 15
-        self.max_lines = 30
+        self.max_rows = 30
         self.hidden = False
         if filename:
             self.load_file(filename)
@@ -43,6 +40,10 @@ class TextNodeFile(TextNode):
     @property
     def line_length(self):
         return len(self.line)
+
+    @property
+    def line_offset(self):
+        return max(0,self.y - self.max_rows//2)
 
     def new_file(self):
         self.x = self.y = 0
@@ -88,15 +89,11 @@ class TextNodeFile(TextNode):
         if self.hidden:
             return
         for l, line in enumerate(self.lines):
-            line_offset = max(0,self.y - self.scroll_start)
-            if l >= line_offset:
-                if self.y == l:
-                    a,b = split(line, self.x)
-                    line = a+"|"+b
+            if l >= self.line_offset:
                 if self.show_line_number:
                     self.text += fill(str(l),3)+' '
                 self.text += line + "\n"
-            if l > line_offset+self.max_lines-1:
+            if l > self.line_offset+self.max_rows-1:
                 return
 
     def refresh(self):
@@ -107,56 +104,76 @@ class TextNodeEditor(DirectObject, TextNodeFile):
     def __init__(self, name, filename=None, **options):
         DirectObject.__init__(self)
         TextNodeFile.__init__(self, name, None, **options)
+        # Only works with monospaces fonts at this time.
+        self.font = loader.load_font("fifteen.ttf")
+        self.set_font(self.font)
+        self.char_w = self.calc_width(" ")
+        self.char_h = self.get_line_height()
+
         self.highlight = Highlight()
         self.repl = Repl()
         self.setup_input()
 
-        self.selected = [0,0]
-        self.selected_lines = []
-        self.select_cards = create_select_cards()
+        self.cardmaker = CardMaker('selection cards')
+        self.cards = []
+        self.cursor_card = None
+        self.selecting = False
+        self.select_start = [0,0]
+        self.selection = []
 
         if filename:
             self.load_file(filename)
 
+    def clear_rects(self):
+        for card in self.cards:
+            if card in list(self.children):
+                self.remove_child(card)
+        self.cards = []
+
+    def draw_rect(self, rect, color=(1,1,1,1)):
+        rx, ry, rw, rh = rect
+        l = ((rx)*self.char_w)
+        r = ((rx+rw+1)*self.char_w)-0.2
+        u = ((ry-1)*self.char_h)+0.5
+        d = ((ry+rh)*self.char_h)+0.3
+        self.cardmaker.set_frame(l,r,-u,-d)
+        self.cardmaker.set_color(color)
+        card = self.cardmaker.generate()
+        self.add_child(card)
+        return card
+
+    def draw_selection(self):
+        self.clear_rects()
+        if self.selecting:
+            self.selection = []
+            for i in range(abs(self.y-self.selection_start[1]-1)):
+                if self.y < self.selection_start[1]:
+                    i = -i
+                i = self.y - i
+                y = i-self.line_offset
+                x = 4
+                w = len(self.lines[i])
+                self.cards.append(self.draw_rect([x,y,w,0]))
+
+    def draw_cursor(self):
+        new_card = self.draw_rect([self.x+4, self.y-self.line_offset, 0.0001, 0])
+        if self.cursor_card:
+            new_card.replace_node(self.cursor_card)
+        self.cursor_card = new_card
+
     def refresh(self):
+        self.draw_cursor()
+        self.draw_selection()
         self.write_out()
         self.text = self.highlight.highlight(self.text)
 
     def run(self):
         self.repl.repl(self.lines)
 
-    def key(self, key, func, extra_args=[]):
-        self.accept(key, func, extraArgs=extra_args)
-        self.accept(key+'-repeat', func, extraArgs=extra_args)
-
-    def setup_input(self):
-        base.buttonThrowers[0].node().setKeystrokeEvent('keystroke')
-        self.key('keystroke', self.add)
-        self.key('enter', self.enter)
-        self.key('shift-enter', self.run)
-
-        self.key('arrow_left', self.move_char, [-1])
-        self.key('arrow_right', self.move_char, [1])
-        self.key('arrow_up', self.move_line, [-1])
-        self.key('arrow_down', self.move_line, [1])
-
-        self.key('tab', self.tab)
-        self.key('shift-tab', self.tab, extra_args=[True])
-        self.key('control-tab', self.hide)
-
-        self.key('backspace', self.remove)
-        self.key('delete', self.remove, extra_args=[False])
-
-        self.key('end', self.scroll_max, extra_args=[True, True])
-        self.key('home', self.scroll_max, extra_args=[True, False])
-        self.key('control-end', self.scroll_max, extra_args=[False, True])
-        self.key('control-home', self.scroll_max, extra_args=[False, False])
-        self.key('page_down', self.scroll, extra_args=[1])
-        self.key('page_up', self.scroll, extra_args=[-1])
-
-        self.key('control-n', self.new_file)
-        self.key('control-s', self.save_file)
-        self.key('control-o', self.load_file)
+    def toggle_select(self, on=True):
+        self.selecting = on
+        print(on)
+        self.selection_start = [self.x, self.y]
 
     def move_char(self, amount, refresh=True):
         self.x += amount
@@ -168,18 +185,28 @@ class TextNodeEditor(DirectObject, TextNodeFile):
             self.x = 0
         if refresh: self.refresh()
 
+    def move_word(self, amount, refresh=True):
+        try:
+            check = " " if self.line[self.x] == " " else LETTERS
+            self.move_char(amount, refresh=False)
+            while True:
+                if self.line[self.x] in check:
+                    self.move_char(amount, refresh=False)
+                else:
+                    break
+        except IndexError:
+            self.move_char(amount, refresh=False)
+        if refresh: self.refresh()
+
     def move_line(self, amount, refresh=True):
         self.y += amount
-        if self.y >= len(self.lines)-1:
-            self.y = len(self.lines)-1
-        if self.y < 0:
-            self.y = 0
+        self.y = clamp(self.y, 0, len(self.lines)-1)
         if self.x > self.line_length:
             self.x = self.line_length
         if refresh: self.refresh()
 
     def scroll(self, amount):
-        for i in range(self.max_lines-1):
+        for i in range(self.max_rows-1):
             self.move_line(amount, refresh=False)
         self.refresh()
 
@@ -232,3 +259,45 @@ class TextNodeEditor(DirectObject, TextNodeFile):
         self.y += 1
         self.refresh()
         self.run()
+
+    def key(self, key, func, extra_args=[]):
+        self.accept(key, func, extraArgs=extra_args)
+        self.accept('shift-'+key, func, extraArgs=extra_args)
+        self.accept(key+'-repeat', func, extraArgs=extra_args)
+        self.accept('shift-'+key+'-repeat', func, extraArgs=extra_args)
+
+
+    def setup_input(self):
+        base.buttonThrowers[0].node().setKeystrokeEvent('keystroke')
+        self.key('keystroke', self.add)
+        self.key('enter', self.enter)
+        self.key('shift-enter', self.run)
+
+        self.key('arrow_left', self.move_char, [-1])
+        self.key('arrow_right', self.move_char, [1])
+        self.key('arrow_up', self.move_line, [-1])
+        self.key('arrow_down', self.move_line, [1])
+        self.key("control-arrow_left", self.move_word, [-1])
+        self.key("control-arrow_right", self.move_word, [1])
+
+        self.key('tab', self.tab)
+        self.key('shift-tab', self.tab, extra_args=[True])
+        self.key('control-tab', self.hide)
+
+        self.key('backspace', self.remove)
+        self.key('delete', self.remove, extra_args=[False])
+
+        self.key('end', self.scroll_max, extra_args=[True, True])
+        self.key('home', self.scroll_max, extra_args=[True, False])
+        self.key('control-end', self.scroll_max, extra_args=[False, True])
+        self.key('control-home', self.scroll_max, extra_args=[False, False])
+        self.key('page_down', self.scroll, extra_args=[1])
+        self.key('page_up', self.scroll, extra_args=[-1])
+
+        self.key('control-n', self.new_file)
+        self.key('control-s', self.save_file)
+        self.key('control-o', self.load_file)
+
+        self.accept('shift', self.toggle_select, extraArgs=[True])
+        self.accept('shift-up', self.toggle_select, extraArgs=[False])
+

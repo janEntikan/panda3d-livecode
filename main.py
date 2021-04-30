@@ -13,7 +13,6 @@ class Base(ShowBase):
         self.text_np.set_scale(0.045)
         self.text_np.set_pos((-0.95,0,0.9))
 
-
 if __name__ == "__main__":
     base = Base()
     base.run()
