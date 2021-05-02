@@ -122,16 +122,21 @@ class TextNodeEditor(DirectObject, TextNodeFile):
         self.selecting = False
         self.paste_buffer = []
 
+        self.history = []
+        self.history_index = 0
+
         if filename:
             self.load_file(filename)
 
+        self.add_history() # Make initial state a snapshot.
+
     def copy(self):
         self.paste_buffer = self.selection_buffer[:]
-        print("copy", self.paste_buffer)
 
     def cut(self):
         self.copy()
         self.remove_range()
+        self.add_history()
         self.refresh()
 
     def paste(self):
@@ -143,6 +148,7 @@ class TextNodeEditor(DirectObject, TextNodeFile):
         to_paste = to_paste[:1]
         for l, line in enumerate(to_paste):
             self.lines.insert(self.y+l, line)
+        self.add_history()
         self.refresh()
 
     # Selection editing
@@ -272,9 +278,10 @@ class TextNodeEditor(DirectObject, TextNodeFile):
             self.y = len(self.lines) if end else 0
         self.refresh()
 
-    def remove(self, backwards=True):
+    def remove(self, backwards=True, refresh=True):
         if len(self.selection_buffer) > 0:
             self.remove_range()
+            self.add_history()
             self.refresh()
             return
 
@@ -292,13 +299,16 @@ class TextNodeEditor(DirectObject, TextNodeFile):
             a = a[:-1]
             self.x -= 1
             self.lines[self.y] = a + b
-        self.refresh()
+        if refresh:
+            self.add_history()
+            self.refresh()
 
     def add(self, keyname):
         if keyname in LEGAL_CHARACTERS:
             a,b = split(self.line, self.x)
             self.lines[self.y] = a+keyname+b
             self.x += 1
+            self.add_history()
             self.refresh()
 
     def enter(self):
@@ -308,6 +318,7 @@ class TextNodeEditor(DirectObject, TextNodeFile):
         self.lines = lines_a + [string_a] + [string_b] + lines_b
         self.x = 0
         self.y += 1
+        self.add_history()
         self.refresh()
         self.run()
 
@@ -319,6 +330,7 @@ class TextNodeEditor(DirectObject, TextNodeFile):
             if self.line[:self.tab_size] == '    ':
                 self.lines[self.y] = self.line[self.tab_size:]
                 self.x -= self.tab_size
+                self.add_history()
                 self.refresh()
         else:
             for i in range(self.tab_size):
@@ -369,6 +381,9 @@ class TextNodeEditor(DirectObject, TextNodeFile):
         self.key('control-x', self.cut)
         self.key('control-v', self.paste)
 
+        self.key('control-z', self.undo_redo, extra_args=[1])
+        self.key('control-y', self.undo_redo, extra_args=[-1])
+
     def refresh(self):
         if self.selecting:
             self.select_range()
@@ -378,6 +393,21 @@ class TextNodeEditor(DirectObject, TextNodeFile):
         self.draw_cursor()
         self.write_out()
         self.text = self.highlight.highlight(self.text)
+
+    def add_history(self):
+        self.history.insert(0, ((self.x, self.y), self.lines[:]))
+        self.history = self.history[self.history_index:]
+        self.history_index = 0
+
+    def undo_redo(self, direction=1):
+        self.history_index += direction
+        self.history_index = clamp(
+            self.history_index, 0, len(self.history)-1
+        )
+        history = self.history[self.history_index]
+        self.x, self.y = history[0]
+        self.lines = history[1][:]
+        self.refresh()
 
     def run(self):
         self.repl.repl(self.lines)
