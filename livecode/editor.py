@@ -120,21 +120,32 @@ class TextNodeEditor(DirectObject, TextNodeFile):
         self.cards = []
         self.cursor_card = None
         self.selecting = False
-        self.select_start = [0,0]
+        self.paste_buffer = []
 
         if filename:
             self.load_file(filename)
 
     def copy(self):
-        self.copy_buffer = self.selection_buffer[:]
+        self.paste_buffer = self.selection_buffer[:]
+        print("copy", self.paste_buffer)
 
     def cut(self):
         self.copy()
         self.remove_range()
+        self.refresh()
 
     def paste(self):
-        self.copy()
+        if len(self.paste_buffer) <= 0:
+            return
+        a, b = split(self.line, self.x)
+        to_paste = self.paste_buffer[:]
+        self.lines[self.y] = a + to_paste[0]
+        to_paste = to_paste[:1]
+        for l, line in enumerate(to_paste):
+            self.lines.insert(self.y+l, line)
+        self.refresh()
 
+    # Selection editing
     def clear_rects(self):
         for card in self.cards:
             if card in list(self.children):
@@ -153,7 +164,7 @@ class TextNodeEditor(DirectObject, TextNodeFile):
         self.add_child(card)
         return card
 
-    def draw_selection(self, line_number, start, end=0):
+    def draw_line_rect(self, line_number, start, end=0):
         x = self.line_number_width+start
         y = line_number-self.line_offset
         w = len(self.lines[line_number])-start
@@ -161,54 +172,60 @@ class TextNodeEditor(DirectObject, TextNodeFile):
             w = min(w,end)
         self.cards.append(self.draw_rect([x,y,w,0]))
 
-    def remove_range(self, start, end):
+    def remove_range(self):
+        end, start = self.selection_direction()
         if start[1] == end[1]:
-            self.lines[start[1]] = self.lines[start[1]][start[0]:end[0]]
-
-    def select_range(self, start, end):
-        self.selection_buffer = []
-        if start[1] == end[1]:
-            self.draw_selection(start[1], end[0], start[0]-end[0])
-            line = self.lines[start[1]]
-            self.selection_buffer.append(line[start[0]:end[0]])
+            a = self.lines[start[1]][:end[0]]
+            b = self.lines[start[1]][start[0]:]
+            self.lines[start[1]] = a + b
+            self.x, self.y = end
         else:
-            self.draw_selection(start[1], 0, start[0])
-            line = self.lines[start[1]]
-            self.selection_buffer.append(line[0:start[0]])
-            for i in range(1, abs(start[1]-end[1])):
-                i = start[1] - i
-                self.draw_selection(i,0)
-                self.selection_buffer.append(self.lines[i])
-            self.draw_selection(end[1], end[0])
-            line = self.lines[end[1]]
-            self.selection_buffer.append(line[0:start[0]])
+            a = self.lines[start[1]][:start[0]]
+            b = self.lines[end[1]][end[0]:]
+            self.lines[start[1]] = a + b
+            for i in range(1, (end[1]-start[1])+2):
+                self.lines.pop(start[1]+1)
+            self.x, self.y = start
 
-    def handle_selection(self):
+    def select_range(self):
         self.clear_rects()
-        if self.selecting:
-            if self.y > self.selection_start[1]:
-                self.select_range((self.x, self.y),self.selection_start)
-            else:
-                self.select_range(self.selection_start, (self.x, self.y))
+        self.selection_buffer = []
+        start, end = self.selection_direction()
+        if start[1] == end[1]:
+            self.draw_line_rect(start[1], end[0], start[0]-end[0])
+            self.selection_buffer.append(self.lines[start[1]][start[0]:end[0]])
+        else:
+            if start[0] > 0:
+                self.draw_line_rect(start[1], 0, start[0])
+            self.selection_buffer.append(self.lines[start[1]][:start[0]])
+            for i in range(1, start[1]-end[1]):
+                i = start[1] - i
+                self.draw_line_rect(i,0)
+                self.selection_buffer.append(self.lines[i])
+            self.draw_line_rect(end[1], end[0])
+            self.selection_buffer.append(self.lines[end[1]][:start[0]])
 
+    def selection_direction(self):
+        if self.y > self.selection_start[1]:
+            return (self.x, self.y), self.selection_start
+        else:
+            return self.selection_start, (self.x, self.y)
+
+    def toggle_select(self, on=True):
+        if len(self.selection_buffer) > 0:
+            already_selecting = True
+        else:
+            already_selecting = False
+        self.selecting = on
+        if self.selecting and not already_selecting:
+            self.selection_start = [self.x, self.y]
+
+    # Cursor editing
     def draw_cursor(self):
         new_card = self.draw_rect([self.x+self.line_number_width, self.y-self.line_offset, 0.0001, 0])
         if self.cursor_card:
             new_card.replace_node(self.cursor_card)
         self.cursor_card = new_card
-
-    def refresh(self):
-        self.handle_selection()
-        self.draw_cursor()
-        self.write_out()
-        self.text = self.highlight.highlight(self.text)
-
-    def run(self):
-        self.repl.repl(self.lines)
-
-    def toggle_select(self, on=True):
-        self.selecting = on
-        self.selection_start = [self.x, self.y]
 
     def move_char(self, amount, refresh=True):
         self.x += amount
@@ -255,24 +272,12 @@ class TextNodeEditor(DirectObject, TextNodeFile):
             self.y = len(self.lines) if end else 0
         self.refresh()
 
-    def tab(self, backwards=False):
-        if backwards:
-            # HACK: selecting is on when holding shift
-            # so let's force it off for shift-tab untill another key pops up
-            self.selecting = False
-            if self.line[:self.tab_size] == '    ':
-                self.lines[self.y] = self.line[self.tab_size:]
-                self.x -= self.tab_size
-                self.refresh()
-        else:
-            for i in range(self.tab_size):
-                self.add(" ")
-
     def remove(self, backwards=True):
-        if self.selecting:
+        if len(self.selection_buffer) > 0:
             self.remove_range()
             self.refresh()
             return
+
         if not backwards:
             self.move_char(1)
         a, b = split(self.line, self.x)
@@ -306,6 +311,20 @@ class TextNodeEditor(DirectObject, TextNodeFile):
         self.refresh()
         self.run()
 
+    def tab(self, backwards=False):
+        if backwards:
+            # HACK: selecting is on when holding shift
+            # so let's force it off for shift-tab untill another key pops up
+            self.selecting = False
+            if self.line[:self.tab_size] == '    ':
+                self.lines[self.y] = self.line[self.tab_size:]
+                self.x -= self.tab_size
+                self.refresh()
+        else:
+            for i in range(self.tab_size):
+                self.add(" ")
+
+    # Input
     def key(self, key, func, extra_args=[]):
         self.accept(key, func, extraArgs=extra_args)
         self.accept('shift-'+key, func, extraArgs=extra_args)
@@ -349,3 +368,16 @@ class TextNodeEditor(DirectObject, TextNodeFile):
         self.key('control-c', self.copy)
         self.key('control-x', self.cut)
         self.key('control-v', self.paste)
+
+    def refresh(self):
+        if self.selecting:
+            self.select_range()
+        else:
+            self.clear_rects()
+            self.selection_buffer = []
+        self.draw_cursor()
+        self.write_out()
+        self.text = self.highlight.highlight(self.text)
+
+    def run(self):
+        self.repl.repl(self.lines)
