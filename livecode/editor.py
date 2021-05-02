@@ -67,16 +67,18 @@ class TextEditorNode(TextFileSelectionNode):
             return
         if len(self.selection_buffer) > 0:
             self.remove_range()
-
-        a, b = split(self.line, self.x)
-
         to_paste = self.paste_buffer[:]
-        self.lines[self.y] = a + to_paste[-1]
-        for l, line in enumerate(to_paste[1:-1]):
+        if self.x > 0:
+            a, b = split(self.line, self.x)
+            self.lines[self.y] = a + to_paste[-1]
+            to_paste = to_paste[:1]
+        for l, line in enumerate(to_paste):
             self.lines.insert(self.y+1, line)
-        self.y += l+1
-        self.lines[self.y] += b
-        self.move_char(-1)
+        self.y += len(to_paste)
+
+        if self.x > 0:
+            self.lines[self.y] += b
+        self.scroll_max()
         self.add_history()
         self.refresh()
 
@@ -179,6 +181,7 @@ class TextEditorNode(TextFileSelectionNode):
         if backwards:
             # HACK: selecting is on when holding shift
             # so let's force it off for shift-tab untill another key pops up
+            # or we have a keybindings file
             self.selecting = False
             if self.line[:self.tab_size] == '    ':
                 self.lines[self.y] = self.line[self.tab_size:]

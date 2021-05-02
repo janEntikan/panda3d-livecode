@@ -155,7 +155,7 @@ class TextFileSelectionNode(DirectObject, TextFileNode):
         else:
             if start[0] > 0:
                 self.draw_line_rect(start[1], 0, start[0])
-            self.selection_buffer.append(self.lines[start[1]][:start[0]])
+                self.selection_buffer.append(self.lines[start[1]][:start[0]])
             for i in range(1, start[1]-end[1]):
                 i = start[1] - i
                 self.draw_line_rect(i,0)
