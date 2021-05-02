@@ -1,125 +1,33 @@
-from panda3d.core import NodePath
-from panda3d.core import TextNode
-from panda3d.core import TextAssembler
-from panda3d.core import TextPropertiesManager
-from panda3d.core import CardMaker
-from direct.showbase.DirectObject import DirectObject
-
+from .text import TextFileSelectionNode
 from .highlight import Highlight
 from .repl import Repl
 
 
 NUMBERS = '0123456789'
+SYMBOLS = ' `~!@#$%^&*()_+|-=\\[];,./{}:"<>?'+"'"
 LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 LETTERS = LETTERS + LETTERS.lower()
-SYMBOLS = ' `~!@#$%^&*()_+|-=\\[];,./{}:"<>?'+"'"
 LEGAL_CHARACTERS = LETTERS + NUMBERS + SYMBOLS
 
 def split(l, n): return l[:n], l[n:]
-def fill(string, n): return "{:<{}}".format(string, n)[:n]
 def clamp(n, low, high): return max(low, min(n, high))
 
 
-class TextNodeFile(TextNode):
+class TextEditorNode(TextFileSelectionNode):
     def __init__(self, name, filename=None, **options):
-        TextNode.__init__(self, name, **options)
-        self.set_shadow(0.08)
-        self.set_shadow_color((0,0,0,1))
-        self.x = self.y = 0
-        self.lines = ['']
-        self.show_line_number = True
-        self.line_number_width = 4
-        self.max_rows = 30
-        self.hidden = False
-        if filename:
-            self.load_file(filename)
-
-    @property
-    def line(self):
-        return self.lines[self.y]
-
-    @property
-    def line_length(self):
-        return len(self.line)
-
-    @property
-    def line_offset(self):
-        return max(0,self.y - self.max_rows//2)
-
-    def new_file(self):
-        self.x = self.y = 0
-        self.lines = ['']
-        self.refresh()
-
-    def load_file(self, filename=None):
-        if filename:
-            self.filename = filename
-        else:
-            filename = self.filename
-             # TODO: Ask filename
-        print('loading file {}!'.format(filename))
-        self.lines = []
-        self.text = ''
-        with open(filename) as f:
-            content = f.readlines()
-        for line in content:
-            line = line.strip('\n')
-            self.lines.append(line)
-        self.refresh()
-        self.run()
-
-    def save_file(self, filename=None):
-        if filename:
-            self.filename = filename
-        else:
-            filename = self.filename
-            # TODO: Ask filename
-        print('saving as {}!'.format(filename))
-        self.filename = filename
-        file = open(filename, 'w')
-        for line in self.lines:
-            file.write(line+'\n')
-        file.close()
-
-    def hide(self):
-        self.hidden = not self.hidden
-        self.refresh()
-
-    def write_out(self):
-        self.text = ''
-        if self.hidden:
-            return
-        for l, line in enumerate(self.lines):
-            if l >= self.line_offset:
-                if self.show_line_number:
-                    self.text += fill(str(l),3)+' '
-                self.text += line + "\n"
-            if l > self.line_offset+self.max_rows-1:
-                return
-
-    def refresh(self):
-        self.write_out()
-
-
-class TextNodeEditor(DirectObject, TextNodeFile):
-    def __init__(self, name, filename=None, **options):
-        DirectObject.__init__(self)
-        TextNodeFile.__init__(self, name, None, **options)
+        TextFileSelectionNode.__init__(self, name, filename, **options)
         # Only works with monospaces fonts at this time.
         self.font = loader.load_font("fifteen.ttf")
         self.set_font(self.font)
-        self.char_w = self.calc_width(" ")
-        self.char_h = self.get_line_height()
+        self.rect_w = self.calc_width(" ")
+        self.rect_h = self.get_line_height()
         self.tab_size = 4
 
         self.highlight = Highlight()
         self.repl = Repl()
         self.setup_input()
 
-        self.cardmaker = CardMaker('selection cards')
-        self.cards = []
         self.cursor_card = None
-        self.selecting = False
         self.paste_buffer = []
 
         self.history = []
@@ -129,6 +37,21 @@ class TextNodeEditor(DirectObject, TextNodeFile):
             self.load_file(filename)
 
         self.add_history() # Make initial state a snapshot.
+
+    def add_history(self):
+        self.history.insert(0, ((self.x, self.y), self.lines[:]))
+        self.history = self.history[self.history_index:]
+        self.history_index = 0
+
+    def undo_redo(self, direction=1):
+        self.history_index += direction
+        self.history_index = clamp(
+            self.history_index, 0, len(self.history)-1
+        )
+        history = self.history[self.history_index]
+        self.x, self.y = history[0]
+        self.lines = history[1][:]
+        self.refresh()
 
     def copy(self):
         self.paste_buffer = self.selection_buffer[:]
@@ -142,91 +65,21 @@ class TextNodeEditor(DirectObject, TextNodeFile):
     def paste(self):
         if len(self.paste_buffer) <= 0:
             return
+        if len(self.selection_buffer) > 0:
+            self.remove_range()
+
         a, b = split(self.line, self.x)
+
         to_paste = self.paste_buffer[:]
-        self.lines[self.y] = a + to_paste[0]
-        to_paste = to_paste[:1]
-        for l, line in enumerate(to_paste):
-            self.lines.insert(self.y+l, line)
+        self.lines[self.y] = a + to_paste[-1]
+        for l, line in enumerate(to_paste[1:-1]):
+            self.lines.insert(self.y+1, line)
+        self.y += l+1
+        self.lines[self.y] += b
+        self.move_char(-1)
         self.add_history()
         self.refresh()
 
-    # Selection editing
-    def clear_rects(self):
-        for card in self.cards:
-            if card in list(self.children):
-                self.remove_child(card)
-        self.cards = []
-
-    def draw_rect(self, rect, color=(1,1,1,1)):
-        rx, ry, rw, rh = rect
-        l = ((rx)*self.char_w)
-        r = ((rx+rw+1)*self.char_w)-0.2
-        u = ((ry-1)*self.char_h)+0.5
-        d = ((ry+rh)*self.char_h)+0.3
-        self.cardmaker.set_frame(l,r,-u,-d)
-        self.cardmaker.set_color(color)
-        card = self.cardmaker.generate()
-        self.add_child(card)
-        return card
-
-    def draw_line_rect(self, line_number, start, end=0):
-        x = self.line_number_width+start
-        y = line_number-self.line_offset
-        w = len(self.lines[line_number])-start
-        if end:
-            w = min(w,end)
-        self.cards.append(self.draw_rect([x,y,w,0]))
-
-    def remove_range(self):
-        end, start = self.selection_direction()
-        if start[1] == end[1]:
-            a = self.lines[start[1]][:end[0]]
-            b = self.lines[start[1]][start[0]:]
-            self.lines[start[1]] = a + b
-            self.x, self.y = end
-        else:
-            a = self.lines[start[1]][:start[0]]
-            b = self.lines[end[1]][end[0]:]
-            self.lines[start[1]] = a + b
-            for i in range(1, (end[1]-start[1])+2):
-                self.lines.pop(start[1]+1)
-            self.x, self.y = start
-
-    def select_range(self):
-        self.clear_rects()
-        self.selection_buffer = []
-        start, end = self.selection_direction()
-        if start[1] == end[1]:
-            self.draw_line_rect(start[1], end[0], start[0]-end[0])
-            self.selection_buffer.append(self.lines[start[1]][start[0]:end[0]])
-        else:
-            if start[0] > 0:
-                self.draw_line_rect(start[1], 0, start[0])
-            self.selection_buffer.append(self.lines[start[1]][:start[0]])
-            for i in range(1, start[1]-end[1]):
-                i = start[1] - i
-                self.draw_line_rect(i,0)
-                self.selection_buffer.append(self.lines[i])
-            self.draw_line_rect(end[1], end[0])
-            self.selection_buffer.append(self.lines[end[1]][:start[0]])
-
-    def selection_direction(self):
-        if self.y > self.selection_start[1]:
-            return (self.x, self.y), self.selection_start
-        else:
-            return self.selection_start, (self.x, self.y)
-
-    def toggle_select(self, on=True):
-        if len(self.selection_buffer) > 0:
-            already_selecting = True
-        else:
-            already_selecting = False
-        self.selecting = on
-        if self.selecting and not already_selecting:
-            self.selection_start = [self.x, self.y]
-
-    # Cursor editing
     def draw_cursor(self):
         new_card = self.draw_rect([self.x+self.line_number_width, self.y-self.line_offset, 0.0001, 0])
         if self.cursor_card:
@@ -349,9 +202,6 @@ class TextNodeEditor(DirectObject, TextNodeFile):
         self.key('enter', self.enter)
         self.key('shift-enter', self.run)
 
-        self.accept('shift', self.toggle_select, extraArgs=[True])
-        self.accept('shift-up', self.toggle_select, extraArgs=[False])
-
         self.key('arrow_left', self.move_char, [-1])
         self.key('arrow_right', self.move_char, [1])
         self.key('arrow_up', self.move_line, [-1])
@@ -393,21 +243,6 @@ class TextNodeEditor(DirectObject, TextNodeFile):
         self.draw_cursor()
         self.write_out()
         self.text = self.highlight.highlight(self.text)
-
-    def add_history(self):
-        self.history.insert(0, ((self.x, self.y), self.lines[:]))
-        self.history = self.history[self.history_index:]
-        self.history_index = 0
-
-    def undo_redo(self, direction=1):
-        self.history_index += direction
-        self.history_index = clamp(
-            self.history_index, 0, len(self.history)-1
-        )
-        history = self.history[self.history_index]
-        self.x, self.y = history[0]
-        self.lines = history[1][:]
-        self.refresh()
 
     def run(self):
         self.repl.repl(self.lines)
